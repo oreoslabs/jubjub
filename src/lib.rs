@@ -36,6 +36,7 @@ extern crate alloc;
 extern crate std;
 
 use bitvec::{order::Lsb0, view::AsBits};
+use lazy_static::lazy_static;
 use core::borrow::Borrow;
 use core::fmt;
 use core::iter::Sum;
@@ -59,7 +60,7 @@ use group::WnafGroup;
 mod util;
 
 mod fr;
-pub use bls12_381::Scalar as Fq;
+pub use blstrs::Scalar as Fq;
 pub use fr::Fr;
 
 /// Represents an element of the base field $\mathbb{F}_q$ of the Jubjub elliptic curve
@@ -260,7 +261,7 @@ pub struct AffineNielsPoint {
 
 impl AffineNielsPoint {
     /// Constructs this point from the neutral element `(0, 1)`.
-    pub const fn identity() -> Self {
+    pub fn identity() -> Self {
         AffineNielsPoint {
             v_plus_u: Fq::one(),
             v_minus_u: Fq::one(),
@@ -344,7 +345,7 @@ impl ConditionallySelectable for ExtendedNielsPoint {
 
 impl ExtendedNielsPoint {
     /// Constructs this point from the neutral element `(0, 1)`.
-    pub const fn identity() -> Self {
+    pub fn identity() -> Self {
         ExtendedNielsPoint {
             v_plus_u: Fq::one(),
             v_minus_u: Fq::one(),
@@ -395,25 +396,29 @@ impl<'a, 'b> Mul<&'b Fr> for &'a ExtendedNielsPoint {
 
 impl_binops_multiplicative_mixed!(ExtendedNielsPoint, Fr, ExtendedPoint);
 
-// `d = -(10240/10241)`
-const EDWARDS_D: Fq = Fq::from_raw([
-    0x0106_5fd6_d634_3eb1,
-    0x292d_7f6d_3757_9d26,
-    0xf5fd_9207_e6bd_7fd4,
-    0x2a93_18e7_4bfa_2b48,
-]);
+lazy_static! {
+    // `d = -(10240/10241)`
+    static ref EDWARDS_D: Fq = Fq::from_u64s_le(&[
+        0x0106_5fd6_d634_3eb1,
+        0x292d_7f6d_3757_9d26,
+        0xf5fd_9207_e6bd_7fd4,
+        0x2a93_18e7_4bfa_2b48,
+    ]).unwrap();
 
-// `2*d`
-const EDWARDS_D2: Fq = Fq::from_raw([
-    0x020c_bfad_ac68_7d62,
-    0x525a_feda_6eaf_3a4c,
-    0xebfb_240f_cd7a_ffa8,
-    0x5526_31ce_97f4_5691,
-]);
+    // `2*d`
+    static ref EDWARDS_D2: Fq = Fq::from_u64s_le(&[
+        0x020c_bfad_ac68_7d62,
+        0x525a_feda_6eaf_3a4c,
+        0xebfb_240f_cd7a_ffa8,
+        0x5526_31ce_97f4_5691,
+    ]).unwrap();
+}
+
+
 
 impl AffinePoint {
     /// Constructs the neutral element `(0, 1)`.
-    pub const fn identity() -> Self {
+    pub fn identity() -> Self {
         AffinePoint {
             u: Fq::zero(),
             v: Fq::one(),
@@ -453,8 +458,8 @@ impl AffinePoint {
 
     /// Converts this element into its byte representation.
     pub fn to_bytes(&self) -> [u8; 32] {
-        let mut tmp = self.v.to_bytes();
-        let u = self.u.to_bytes();
+        let mut tmp = self.v.to_bytes_le();
+        let u = self.u.to_bytes_le();
 
         // Encode the sign of the u-coordinate in the most
         // significant bit.
@@ -497,7 +502,7 @@ impl AffinePoint {
         b[31] &= 0b0111_1111;
 
         // Interpret what remains as the v-coordinate
-        Fq::from_bytes(&b).and_then(|v| {
+        Fq::from_bytes_le(&b).and_then(|v| {
             // -u^2 + v^2 = 1 + d.u^2.v^2
             // -u^2 = 1 + d.u^2.v^2 - v^2    (rearrange)
             // -u^2 - d.u^2.v^2 = 1 - v^2    (rearrange)
@@ -511,11 +516,11 @@ impl AffinePoint {
 
             let v2 = v.square();
 
-            ((v2 - Fq::one()) * ((Fq::one() + EDWARDS_D * v2).invert().unwrap_or(Fq::zero())))
+            ((v2 - Fq::one()) * ((Fq::one() + *EDWARDS_D * v2).invert().unwrap_or(Fq::zero())))
                 .sqrt()
                 .and_then(|u| {
                     // Fix the sign of `u` if necessary
-                    let flip_sign = Choice::from((u.to_bytes()[0] ^ sign) & 1);
+                    let flip_sign = Choice::from((u.to_bytes_le()[0] ^ sign) & 1);
                     let u_negated = -u;
                     let final_u = Fq::conditional_select(&u, &u_negated, flip_sign);
 
@@ -569,7 +574,7 @@ impl AffinePoint {
                 b[31] &= 0b0111_1111;
 
                 // Interpret what remains as the v-coordinate
-                Fq::from_bytes(&b).map(|v| {
+                Fq::from_bytes_le(&b).map(|v| {
                     // -u^2 + v^2 = 1 + d.u^2.v^2
                     // -u^2 = 1 + d.u^2.v^2 - v^2    (rearrange)
                     // -u^2 - d.u^2.v^2 = 1 - v^2    (rearrange)
@@ -587,7 +592,7 @@ impl AffinePoint {
                         v,
                         sign,
                         numerator: (v2 - Fq::one()),
-                        denominator: Fq::one() + EDWARDS_D * v2,
+                        denominator: Fq::one() + *EDWARDS_D * v2,
                     }
                 })
             })
@@ -609,7 +614,7 @@ impl AffinePoint {
                      }| {
                         (numerator * inv_denominator).sqrt().and_then(|u| {
                             // Fix the sign of `u` if necessary
-                            let flip_sign = Choice::from((u.to_bytes()[0] ^ sign) & 1);
+                            let flip_sign = Choice::from((u.to_bytes_le()[0] ^ sign) & 1);
                             let u_negated = -u;
                             let final_u = Fq::conditional_select(&u, &u_negated, flip_sign);
 
@@ -637,7 +642,7 @@ impl AffinePoint {
     }
 
     /// Returns an `ExtendedPoint` for use in arithmetic operations.
-    pub const fn to_extended(&self) -> ExtendedPoint {
+    pub fn to_extended(&self) -> ExtendedPoint {
         ExtendedPoint {
             u: self.u,
             v: self.v,
@@ -649,11 +654,11 @@ impl AffinePoint {
 
     /// Performs a pre-processing step that produces an `AffineNielsPoint`
     /// for use in multiple additions.
-    pub const fn to_niels(&self) -> AffineNielsPoint {
+    pub fn to_niels(&self) -> AffineNielsPoint {
         AffineNielsPoint {
-            v_plus_u: Fq::add(&self.v, &self.u),
-            v_minus_u: Fq::sub(&self.v, &self.u),
-            t2d: Fq::mul(&Fq::mul(&self.u, &self.v), &EDWARDS_D2),
+            v_plus_u: Fq::add(self.v, &self.u),
+            v_minus_u: Fq::sub(self.v, &self.u),
+            t2d: Fq::mul(Fq::mul(self.u, &self.v), &*EDWARDS_D2),
         }
     }
 
@@ -677,7 +682,7 @@ impl AffinePoint {
 
 impl ExtendedPoint {
     /// Constructs an extended point from the neutral element `(0, 1)`.
-    pub const fn identity() -> Self {
+    pub fn identity() -> Self {
         ExtendedPoint {
             u: Fq::zero(),
             v: Fq::one(),
@@ -730,7 +735,7 @@ impl ExtendedPoint {
             v_plus_u: self.v + self.u,
             v_minus_u: self.v - self.u,
             z: self.z,
-            t2d: self.t1 * self.t2 * EDWARDS_D2,
+            t2d: self.t1 * self.t2 * *EDWARDS_D2,
         }
     }
 
@@ -1153,7 +1158,7 @@ impl SubgroupPoint {
     /// other cases, use [`SubgroupPoint::from_bytes`] instead.
     ///
     /// [`SubgroupPoint::from_bytes`]: SubgroupPoint#impl-GroupEncoding
-    pub const fn from_raw_unchecked(u: Fq, v: Fq) -> Self {
+    pub fn from_raw_unchecked(u: Fq, v: Fq) -> Self {
         SubgroupPoint(AffinePoint::from_raw_unchecked(u, v).to_extended())
     }
 }
@@ -1249,7 +1254,7 @@ impl Group for ExtendedPoint {
             // See AffinePoint::from_bytes for details.
             let v2 = v.square();
             let p = ((v2 - Fq::one())
-                * ((Fq::one() + EDWARDS_D * v2).invert().unwrap_or(Fq::zero())))
+                * ((Fq::one() + *EDWARDS_D * v2).invert().unwrap_or(Fq::zero())))
             .sqrt()
             .map(|u| AffinePoint {
                 u: if flip_sign { -u } else { u },
@@ -1380,18 +1385,18 @@ impl CofactorCurveAffine for AffinePoint {
     fn generator() -> Self {
         // The point with the lowest positive v-coordinate and positive u-coordinate.
         AffinePoint {
-            u: Fq::from_raw([
+            u: Fq::from_u64s_le(&[
                 0xe4b3_d35d_f1a7_adfe,
                 0xcaf5_5d1b_29bf_81af,
                 0x8b0f_03dd_d60a_8187,
                 0x62ed_cbb8_bf37_87c8,
-            ]),
-            v: Fq::from_raw([
+            ]).unwrap(),
+            v: Fq::from_u64s_le(&[
                 0x0000_0000_0000_000b,
                 0x0000_0000_0000_0000,
                 0x0000_0000_0000_0000,
                 0x0000_0000_0000_0000,
-            ]),
+            ]).unwrap(),
         }
     }
 
