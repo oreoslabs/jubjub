@@ -681,6 +681,38 @@ impl AffinePoint {
 }
 
 impl ExtendedPoint {
+    /// used with caution
+    pub fn from_bytes_le(le_bytes: &[u8; 160]) -> CtOption<Self> {
+        let u_bytes: &[u8; 32] = le_bytes[0..32].try_into().unwrap();
+        let u = Fq::from_bytes_le(u_bytes).unwrap();
+        let v_bytes: &[u8; 32] = le_bytes[32..64].try_into().unwrap();
+        let v = Fq::from_bytes_le(v_bytes).unwrap();
+        let z_bytes: &[u8; 32] = le_bytes[64..96].try_into().unwrap();
+        let z = Fq::from_bytes_le(z_bytes).unwrap();
+        let t1_bytes: &[u8; 32] = le_bytes[96..128].try_into().unwrap();
+        let t1 = Fq::from_bytes_le(t1_bytes).unwrap();
+        let t2_bytes: &[u8; 32] = le_bytes[128..160].try_into().unwrap();
+        let t2 = Fq::from_bytes_le(t2_bytes).unwrap();
+        CtOption::new(Self {
+            u,
+            v,
+            z,
+            t1,
+            t2,
+        }, 1.into())
+    }
+
+    /// use with caution
+    pub fn to_bytes_le(&self) -> Vec<u8> {
+        let mut res = Vec::new();
+        res.extend(self.u.to_bytes_le());
+        res.extend(self.v.to_bytes_le());
+        res.extend(self.z.to_bytes_le());
+        res.extend(self.t1.to_bytes_le());
+        res.extend(self.t2.to_bytes_le());
+        res
+    }
+
     /// Constructs an extended point from the neutral element `(0, 1)`.
     pub fn identity() -> Self {
         ExtendedPoint {
