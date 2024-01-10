@@ -1156,7 +1156,7 @@ impl_binops_multiplicative_mixed!(AffinePoint, Fr, ExtendedPoint);
 /// This represents a point in the prime-order subgroup of Jubjub, in extended
 /// coordinates.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SubgroupPoint(ExtendedPoint);
+pub struct SubgroupPoint(pub ExtendedPoint);
 
 impl From<SubgroupPoint> for ExtendedPoint {
     fn from(val: SubgroupPoint) -> ExtendedPoint {
@@ -1192,6 +1192,18 @@ impl SubgroupPoint {
     /// [`SubgroupPoint::from_bytes`]: SubgroupPoint#impl-GroupEncoding
     pub fn from_raw_unchecked(u: Fq, v: Fq) -> Self {
         SubgroupPoint(AffinePoint::from_raw_unchecked(u, v).to_extended())
+    }
+
+    /// use with caution
+    pub fn from_bytes_le(bytes: &[u8; 160]) -> Self {
+        SubgroupPoint(ExtendedPoint::from_bytes_le(bytes).unwrap())
+    }
+
+    /// use with caution
+    pub fn to_bytes_le(&self) -> Vec<u8> {
+        let mut res = Vec::new();
+        res.extend(self.0.to_bytes_le());
+        res
     }
 }
 
